@@ -1,0 +1,20 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-web = "4.2.1"
+chrono = { version = "0.4.23", features = ["serde"] }
+dotenv = "0.15.0"
+env_logger = "0.10.0"
+serde = { version = "1.0.152", features = ["derive"] }
+serde_json = "1.0.91"
+sqlx = {version = "0.6.2", features = ["postgres",  "runtime-actix-native-tls", "chrono"]}
+actix-web-httpauth = "0.8.0"
+hmac = "0.12.1"
+jwt = "0.16.0"
+sha2 = "0.10.6"
+argonautica = "0.2.0"
