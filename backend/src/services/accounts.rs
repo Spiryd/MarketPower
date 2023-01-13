@@ -1,12 +1,13 @@
 use actix_web::{get, post, web::{Data, Json, ReqData}, Responder, HttpResponse};
 use actix_web_httpauth::extractors::basic::BasicAuth;
 use serde::{Serialize, Deserialize};
-use sqlx::{self, FromRow};
+use sqlx::{self, FromRow, Postgres, Pool};
 use chrono::NaiveDateTime;
 use hmac::{Hmac, Mac};
 use jwt::SignWithKey;
 use sha2::Sha256;
 use argonautica::{Hasher, Verifier};
+use rand::Rng;
 
 use crate::{AppState, TokenClaims};
 
@@ -19,7 +20,7 @@ struct CreateAccountBody {
 #[derive(Serialize, FromRow)]
 struct AccountNoPassword {
     id: i32,
-    username: String,
+    login: String,
 }
 
 #[derive(Serialize, FromRow)]
@@ -27,7 +28,7 @@ struct AuthUser {
     id: i32,
     login: String,
     password: String,
-    security_lvl: i8,
+    security_lvl: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -36,7 +37,24 @@ struct Account {
     login: String,
     hashed_password: String,
     salt: String,
-    security_lvl: i8,
+    security_lvl: i32,
+}
+
+fn generate_salt() -> String {
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+    abcdefghijklmnopqrstuvwxyz\
+    0123456789";
+    const SALT_LEN: usize = 8;
+    let mut rng = rand::thread_rng();
+
+    let salt: String = (0..SALT_LEN)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect();
+
+    salt
 }
 
 #[get("/auth")]
@@ -52,7 +70,7 @@ async fn basic_auth(state: Data<AppState>, credentials: BasicAuth) -> impl Respo
         None => HttpResponse::Unauthorized().json("Must provide longin and password"),
         Some(pass) => {
             match sqlx::query_as::<_, AuthUser>(
-                "SELECT id, login, hashed_password FROM account WHERE login = $1"
+                "SELECT id, login, hashed_password, salt FROM account WHERE login = $1"
             )
             .bind(login.to_string())
             .fetch_one(&state.db)
@@ -84,10 +102,23 @@ async fn basic_auth(state: Data<AppState>, credentials: BasicAuth) -> impl Respo
 
 #[get("/accounts")]
 async fn fetch_acconts(state: Data<AppState>) -> impl Responder {
-    match sqlx::query_as::<_, Account>("SELECT * FROM account").fetch_all(&state.db).await  {
+    match sqlx::query_as::<_, Account>("SELECT * FROM account").fetch_all(&state.db).await {
         Ok(account)=> HttpResponse::Ok().json(account),
-
         Err(_) => HttpResponse::NotFound().json("No accounts found"),
+    }
+}
+
+async fn chceck_for_login_avaliablility(login: String, database: Pool<Postgres>) -> bool {
+    let resault = sqlx::query_as::<_, Account>("SELECT * FROM account WHERE login = $1").bind(login).fetch_all(&database).await;
+    match resault {
+        Ok(x) => {
+            if x.len() != 0 {
+                false
+            } else {
+                true
+            }
+        },
+        Err(_) => false,
     }
 }
 
@@ -96,20 +127,28 @@ async fn create_account(state: Data<AppState>, body: Json<CreateAccountBody>) ->
     let account: CreateAccountBody = body.into_inner();
     let hash_secret = std::env::var("HASH_SECRET").expect("HASH_SECRET must be set!");
     let mut hasher = Hasher::default();
+    let salt = generate_salt();
+
+    if !chceck_for_login_avaliablility(account.login.clone(), state.db.clone()).await { 
+        return HttpResponse::InternalServerError().json("login not avaliable");
+    }
+
     let hash = hasher
         .with_password(account.password)
-        .with_additional_data("test")
+        .with_additional_data(&salt)
         .with_secret_key(hash_secret)
         .hash()
         .unwrap();
 
     match sqlx::query_as::<_, AccountNoPassword>(
         "Insert INTO account (login, hashed_password, salt, security_lvl)
-        VALUES ($1, $2)
+        VALUES ($1, $2, $3, $4)
         RETURNING id, login"
     )
     .bind(account.login)
     .bind(hash)
+    .bind(salt)
+    .bind(2)
     .fetch_one(&state.db)
     .await
     {
@@ -139,7 +178,6 @@ async fn create_article(state: Data<AppState>, req_user: Option<ReqData<TokenCla
     match req_user {
         Some(user) => {
             let article: CreateArticleBody = body.into_inner();
-
             match sqlx::query_as::<_, Article>(
                 "INSERT INTO articles (title, content, published_by)
                 VALUES ($1, $2, $3)

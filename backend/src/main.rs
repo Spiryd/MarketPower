@@ -19,7 +19,7 @@ pub struct AppState {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TokenClaims {
     id: i32,
-    security_lvl: i8,
+    security_lvl: i32,
 }
 
 async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<ServiceRequest, (Error, ServiceRequest)>{
@@ -48,7 +48,7 @@ async fn main() -> std::io::Result<()> {
     dotenv().ok();
     let database_url = std::env::var("DATABASE_URL").expect("Database url must be set");
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(100)
         .connect(&database_url)
         .await
         .expect("Error building a connection pool");
@@ -58,10 +58,11 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(AppState {db: pool.clone()}))
             .service(accounts::fetch_acconts)
+            .service(accounts::create_account)
             .service(
                 web::scope("")
                     .wrap(bearer_middleware)
-                    .service(accounts::fetch_acconts)
+
             )
     })
     .bind(("127.0.0.1", 8080))?
