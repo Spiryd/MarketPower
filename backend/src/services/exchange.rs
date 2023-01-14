@@ -1,4 +1,4 @@
-use actix_web::{get, post, web::{Data, ReqData, Json}, Responder, HttpResponse};
+use actix_web::{get, web::{Data, ReqData}, Responder, HttpResponse};
 use serde::{Serialize, Deserialize};
 use sqlx::{self, FromRow};
 
