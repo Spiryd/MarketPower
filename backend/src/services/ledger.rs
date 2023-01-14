@@ -1,4 +1,4 @@
-use actix_web::{get, post, web::{Data, ReqData}, Responder, HttpResponse};
+use actix_web::{get, web::{Data, ReqData}, Responder, HttpResponse};
 use serde::{Serialize, Deserialize};
 use sqlx::{self, FromRow};
 use chrono::NaiveDate;
@@ -24,7 +24,7 @@ async fn fetch_ledger(state: Data<AppState>, req_user: Option<ReqData<TokenClaim
                 2 => &state.db_user,
                 _ => &state.db_auth
             };
-            match sqlx::query_as::<_, EoD>("SELECT * FROM ledger")
+            match sqlx::query_as::<_, EoD>("SELECT * FROM ledger LIMIT 500")
             .fetch_all(db)
             .await
             {
@@ -38,7 +38,7 @@ async fn fetch_ledger(state: Data<AppState>, req_user: Option<ReqData<TokenClaim
 
 #[get("/ledger_test")]
 async fn fetch_ledg_test(state: Data<AppState>,) -> impl Responder{
-    match sqlx::query_as::<_, EoD>("SELECT * FROM ledger LIMIT 5")
+    match sqlx::query_as::<_, EoD>("SELECT * FROM ledger LIMIT 10")
     .fetch_all(&state.db_admin)
     .await
     {

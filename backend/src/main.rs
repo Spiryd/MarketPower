@@ -11,6 +11,7 @@ mod services;
 use services::accounts;
 use services::companies;
 use services::ledger;
+use services::watch_list;
 
 pub struct AppState {
     db_auth: Pool<Postgres>,
@@ -86,11 +87,14 @@ async fn main() -> std::io::Result<()> {
             .service(accounts::basic_auth)
             .service(companies::fetch_comp_test)
             .service(ledger::fetch_ledg_test)
+            .service(watch_list::fetch_watch_test)
             .service(
                 web::scope("")
                     .wrap(bearer_middleware)
                     .service(companies::fetch_companies)
                     .service(ledger::fetch_ledger)
+                    .service(watch_list::post_watchitem)
+                    .service(watch_list::fetch_watch_list)
             )
     })
     .bind(("127.0.0.1", 8080))?
