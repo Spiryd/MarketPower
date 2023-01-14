@@ -1,4 +1,4 @@
-use actix_web::{get, post, web::{Data, ReqData, Json}, Responder, HttpResponse, delete};
+use actix_web::{get, post, web::{Data, ReqData, Json}, Responder, HttpResponse, delete, patch};
 use serde::{Serialize, Deserialize};
 use sqlx::{self, FromRow};
 
@@ -14,7 +14,7 @@ struct PortfolioItem {
 
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
-struct CreatePortfolioItem {
+struct PortfolioItemBody {
     ticker: String,
     amount: f32,
     buy_price: f32,
@@ -61,7 +61,7 @@ async fn fetch_portfolio(state: Data<AppState>, req_user: Option<ReqData<TokenCl
 }
 
 #[post("/portfolio_item")]
-async fn post_portfolio_item(state: Data<AppState>, req_user: Option<ReqData<TokenClaims>>, body: Json<CreatePortfolioItem>) -> impl Responder {
+async fn post_portfolio_item(state: Data<AppState>, req_user: Option<ReqData<TokenClaims>>, body: Json<PortfolioItemBody>) -> impl Responder {
     match req_user {
         Some(user) => {
             let db = match user.security_lvl {
@@ -70,7 +70,7 @@ async fn post_portfolio_item(state: Data<AppState>, req_user: Option<ReqData<Tok
                 2 => &state.db_user,
                 _ => &state.db_auth
             };
-            let portfolio_item_body: CreatePortfolioItem = body.into_inner();
+            let portfolio_item_body: PortfolioItemBody = body.into_inner();
             match sqlx::query_as::<_, PortfolioItem>("INSERT INTO portfolio VALUES ($1, $2, $3, $4) RETURNING account_id, ticker, amount, buy_price")
             .bind(user.id)
             .bind(portfolio_item_body.ticker)
@@ -101,6 +101,38 @@ async fn delete_portfolio_item(state: Data<AppState>, req_user: Option<ReqData<T
             match sqlx::query_as::<_, PortfolioItem>("DELETE FROM portfolio WHERE account_id = $1 AND ticker = $2 RETURNING * ")
             .bind(user.id)
             .bind(portfolio_item_body.ticker)
+            .fetch_all(db)
+            .await
+            {
+                Ok(portfolioitem) => HttpResponse::Ok().json(portfolioitem),
+                Err(error) => HttpResponse::InternalServerError().json(format!("{:?}", error)),
+            }
+        }
+        _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
+    }
+}
+
+#[patch("/portfolio_item")]
+async fn alter_portfolio_item(state: Data<AppState>, req_user: Option<ReqData<TokenClaims>>, body: Json<PortfolioItemBody>) -> impl Responder {
+    match req_user {
+        Some(user) => {
+            let db = match user.security_lvl {
+                0 => &state.db_admin,
+                1 => &state.db_moderator,
+                2 => &state.db_user,
+                _ => &state.db_auth
+            };
+            let portfolio_item_body: PortfolioItemBody = body.into_inner();
+            match sqlx::query_as::<_, PortfolioItem>("UPDATE portfolio
+                SET amount = $3,
+                    buy_price = $4
+                WHERE account_id = $1 AND ticker = $2
+                RETURNING * "
+            )
+            .bind(user.id)
+            .bind(portfolio_item_body.ticker)
+            .bind(portfolio_item_body.amount)
+            .bind(portfolio_item_body.buy_price)
             .fetch_all(db)
             .await
             {

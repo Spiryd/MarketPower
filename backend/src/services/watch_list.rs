@@ -78,7 +78,7 @@ async fn post_watchitem(state: Data<AppState>, req_user: Option<ReqData<TokenCla
 }
 
 #[delete("/watchitem")]
-async fn delete_portfolio_item(state: Data<AppState>, req_user: Option<ReqData<TokenClaims>>, body: Json<WatchItemBody>) -> impl Responder {
+async fn delete_watch_item(state: Data<AppState>, req_user: Option<ReqData<TokenClaims>>, body: Json<WatchItemBody>) -> impl Responder {
     match req_user {
         Some(user) => {
             let db = match user.security_lvl {
