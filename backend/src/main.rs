@@ -13,6 +13,7 @@ use services::companies;
 use services::ledger;
 use services::watch_list;
 use services::portfolio;
+use services::exchange;
 
 pub struct AppState {
     db_auth: Pool<Postgres>,
@@ -99,6 +100,7 @@ async fn main() -> std::io::Result<()> {
                     .service(watch_list::fetch_watch_list)
                     .service(portfolio::fetch_portfolio)
                     .service(portfolio::post_portfolio_item)
+                    .service(exchange::fetch_exchange)
             )
     })
     .bind(("127.0.0.1", 8080))?

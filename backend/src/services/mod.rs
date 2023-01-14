@@ -3,3 +3,4 @@ pub mod companies;
 pub mod ledger;
 pub mod watch_list;
 pub mod portfolio;
+pub mod exchange;
