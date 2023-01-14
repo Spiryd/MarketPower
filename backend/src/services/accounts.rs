@@ -1,8 +1,7 @@
-use actix_web::{get, post, web::{Data, Json, ReqData}, Responder, HttpResponse};
+use actix_web::{get, post, web::{Data, Json}, Responder, HttpResponse};
 use actix_web_httpauth::extractors::basic::BasicAuth;
 use serde::{Serialize, Deserialize};
 use sqlx::{self, FromRow, Postgres, Pool};
-use chrono::NaiveDateTime;
 use hmac::{Hmac, Mac};
 use jwt::SignWithKey;
 use sha2::Sha256;
@@ -23,13 +22,6 @@ struct AccountNoPassword {
     login: String,
 }
 
-#[derive(Serialize, FromRow)]
-struct AuthUser {
-    id: i32,
-    login: String,
-    password: String,
-    security_lvl: i32,
-}
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 struct Account {
@@ -69,11 +61,11 @@ async fn basic_auth(state: Data<AppState>, credentials: BasicAuth) -> impl Respo
     match password {
         None => HttpResponse::Unauthorized().json("Must provide longin and password"),
         Some(pass) => {
-            match sqlx::query_as::<_, AuthUser>(
-                "SELECT id, login, hashed_password, salt FROM account WHERE login = $1"
+            match sqlx::query_as::<_, Account>(
+                "SELECT id, login, hashed_password, salt, security_lvl FROM account WHERE login = $1"
             )
             .bind(login.to_string())
-            .fetch_one(&state.db)
+            .fetch_one(&state.db_auth)
             .await 
             {
                 Err(error) => HttpResponse::InternalServerError().json(format!("{:?}", error)),
@@ -81,10 +73,10 @@ async fn basic_auth(state: Data<AppState>, credentials: BasicAuth) -> impl Respo
                     let hash_secret = std::env::var("HASH_SECRET").expect("HASH_SECRET must be set!");
                     let mut verifier = Verifier::default();
                     let is_valid = verifier
-                        .with_hash(user.password)
+                        .with_hash(user.hashed_password)
                         .with_password(pass)
                         .with_secret_key(hash_secret)
-                        .with_additional_data("test")
+                        .with_additional_data(user.salt)
                         .verify()
                         .unwrap();
                     if is_valid {
@@ -102,7 +94,7 @@ async fn basic_auth(state: Data<AppState>, credentials: BasicAuth) -> impl Respo
 
 #[get("/accounts")]
 async fn fetch_acconts(state: Data<AppState>) -> impl Responder {
-    match sqlx::query_as::<_, Account>("SELECT * FROM account").fetch_all(&state.db).await {
+    match sqlx::query_as::<_, Account>("SELECT * FROM account").fetch_all(&state.db_admin).await {
         Ok(account)=> HttpResponse::Ok().json(account),
         Err(_) => HttpResponse::NotFound().json("No accounts found"),
     }
@@ -129,7 +121,7 @@ async fn create_account(state: Data<AppState>, body: Json<CreateAccountBody>) ->
     let mut hasher = Hasher::default();
     let salt = generate_salt();
 
-    if !chceck_for_login_avaliablility(account.login.clone(), state.db.clone()).await { 
+    if !chceck_for_login_avaliablility(account.login.clone(), state.db_admin.clone()).await { 
         return HttpResponse::InternalServerError().json("login not avaliable");
     }
 
@@ -149,7 +141,7 @@ async fn create_account(state: Data<AppState>, body: Json<CreateAccountBody>) ->
     .bind(hash)
     .bind(salt)
     .bind(2)
-    .fetch_one(&state.db)
+    .fetch_one(&state.db_admin)
     .await
     {
         Ok(user) => HttpResponse::Ok().json(user),
@@ -157,42 +149,3 @@ async fn create_account(state: Data<AppState>, body: Json<CreateAccountBody>) ->
     }
 }
 
-#[derive(Deserialize)]
-struct CreateArticleBody {
-    title: String,
-    content: String,
-}
-
-#[derive(Serialize, FromRow)]
-struct Article {
-    id: i32,
-    title: String,
-    content: String,
-    published_by: i32,
-    published_on: Option<NaiveDateTime>,
-}
-
-//wxapmple for future
-#[post("/article")]
-async fn create_article(state: Data<AppState>, req_user: Option<ReqData<TokenClaims>>, body: Json<CreateArticleBody>) -> impl Responder {
-    match req_user {
-        Some(user) => {
-            let article: CreateArticleBody = body.into_inner();
-            match sqlx::query_as::<_, Article>(
-                "INSERT INTO articles (title, content, published_by)
-                VALUES ($1, $2, $3)
-                RETURNING id, title, content, published_by, published_on",
-            )
-            .bind(article.title)
-            .bind(article.content)
-            .bind(user.id)
-            .fetch_one(&state.db)
-            .await
-            {
-                Ok(articles) => HttpResponse::Ok().json(articles),
-                Err(error) => HttpResponse::InternalServerError().json(format!("{:?}", error)),
-            }
-        }
-        _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
-    }
-}

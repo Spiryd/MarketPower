@@ -9,11 +9,14 @@ use sha2::Sha256;
 
 mod services;
 use services::accounts;
-
-extern crate argonautica;
+use services::companies;
+use services::ledger;
 
 pub struct AppState {
-    db: Pool<Postgres>
+    db_auth: Pool<Postgres>,
+    db_user: Pool<Postgres>,
+    db_moderator: Pool<Postgres>,
+    db_admin: Pool<Postgres>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -37,7 +40,6 @@ async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<Servi
         }
         Err(_) => {
             let config = req.app_data::<bearer::Config>().cloned().unwrap_or_default().scope("");
-
             Err((AuthenticationError::from(config).into(), req))
         }
     }
@@ -46,23 +48,49 @@ async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<Servi
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
-    let database_url = std::env::var("DATABASE_URL").expect("Database url must be set");
-    let pool = PgPoolOptions::new()
+    let database_admin_url = std::env::var("DATABASE_URL").expect("Database url must be set");
+    let database_auth_url = std::env::var("DATABASE_URL_AUTH").expect("Database url must be set");
+    let database_user_url = std::env::var("DATABASE_URL_USER").expect("Database url must be set");
+    let database_mod_url = std::env::var("DATABASE_URL_MOD").expect("Database url must be set");
+
+    let pool_admin= PgPoolOptions::new()
         .max_connections(100)
-        .connect(&database_url)
+        .connect(&database_admin_url)
+        .await
+        .expect("Error building a connection pool");
+
+    let pool_auth= PgPoolOptions::new()
+        .max_connections(100)
+        .connect(&database_auth_url)
+        .await
+        .expect("Error building a connection pool");
+
+    let pool_user = PgPoolOptions::new()
+        .max_connections(100)
+        .connect(&database_user_url)
+        .await
+        .expect("Error building a connection pool");
+
+    let pool_mod = PgPoolOptions::new()
+        .max_connections(100)
+        .connect(&database_mod_url)
         .await
         .expect("Error building a connection pool");
 
     HttpServer::new(move || {
         let bearer_middleware = HttpAuthentication::bearer(validator);
         App::new()
-            .app_data(web::Data::new(AppState {db: pool.clone()}))
+            .app_data(web::Data::new(AppState {db_user: pool_user.clone(), db_admin: pool_admin.clone(), db_auth: pool_auth.clone(), db_moderator: pool_mod.clone()}))
             .service(accounts::fetch_acconts)
             .service(accounts::create_account)
+            .service(accounts::basic_auth)
+            .service(companies::fetch_comp_test)
+            .service(ledger::fetch_ledg_test)
             .service(
                 web::scope("")
                     .wrap(bearer_middleware)
-
+                    .service(companies::fetch_companies)
+                    .service(ledger::fetch_ledger)
             )
     })
     .bind(("127.0.0.1", 8080))?
