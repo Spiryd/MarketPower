@@ -100,6 +100,7 @@ async fn main() -> std::io::Result<()> {
                     .service(watch_list::fetch_watch_list)
                     .service(portfolio::fetch_portfolio)
                     .service(portfolio::post_portfolio_item)
+                    .service(portfolio::delete_portfolio_item)
                     .service(exchange::fetch_exchange)
             )
     })

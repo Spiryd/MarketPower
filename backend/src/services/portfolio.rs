@@ -1,4 +1,4 @@
-use actix_web::{get, post, web::{Data, ReqData, Json}, Responder, HttpResponse};
+use actix_web::{get, post, web::{Data, ReqData, Json}, Responder, HttpResponse, delete};
 use serde::{Serialize, Deserialize};
 use sqlx::{self, FromRow};
 
@@ -20,6 +20,10 @@ struct CreatePortfolioItem {
     buy_price: f32,
 }
 
+#[derive(Debug, Serialize, Deserialize, FromRow)]
+struct DeletePortfolioItem {
+    ticker: String,
+}
 
 #[get("/portfolio_test")]
 async fn fetch_portfolio_test(state: Data<AppState>) -> impl Responder{
@@ -72,6 +76,31 @@ async fn post_portfolio_item(state: Data<AppState>, req_user: Option<ReqData<Tok
             .bind(portfolio_item_body.ticker)
             .bind(portfolio_item_body.amount)
             .bind(portfolio_item_body.buy_price)
+            .fetch_all(db)
+            .await
+            {
+                Ok(portfolioitem) => HttpResponse::Ok().json(portfolioitem),
+                Err(error) => HttpResponse::InternalServerError().json(format!("{:?}", error)),
+            }
+        }
+        _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
+    }
+}
+
+#[delete("/portfolio_item")]
+async fn delete_portfolio_item(state: Data<AppState>, req_user: Option<ReqData<TokenClaims>>, body: Json<DeletePortfolioItem>) -> impl Responder {
+    match req_user {
+        Some(user) => {
+            let db = match user.security_lvl {
+                0 => &state.db_admin,
+                1 => &state.db_moderator,
+                2 => &state.db_user,
+                _ => &state.db_auth
+            };
+            let portfolio_item_body: DeletePortfolioItem = body.into_inner();
+            match sqlx::query_as::<_, PortfolioItem>("DELETE FROM portfolio WHERE account_id = $1 AND ticker = $2 RETURNING * ")
+            .bind(user.id)
+            .bind(portfolio_item_body.ticker)
             .fetch_all(db)
             .await
             {
