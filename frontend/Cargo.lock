@@ -145,10 +145,12 @@ version = "0.1.0"
 dependencies = [
  "dotenv",
  "gloo",
+ "js-sys",
  "reqwasm",
  "serde",
  "serde_json",
  "stylist",
+ "thiserror",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
