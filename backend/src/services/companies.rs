@@ -1,4 +1,4 @@
-use actix_web::{get, web::{Data, ReqData}, Responder, HttpResponse};
+use actix_web::{get, web::{Data, ReqData, self}, Responder, HttpResponse};
 use serde::{Serialize, Deserialize};
 use sqlx::{self, FromRow};
 
@@ -43,5 +43,28 @@ async fn fetch_comp_test(state: Data<AppState>,) -> impl Responder{
     {
         Ok(companies) => HttpResponse::Ok().json(companies),
         Err(error) => HttpResponse::InternalServerError().json(format!("{:?}", error)),
+    }
+}
+
+#[get("/companies/{ticker}")]
+async fn fetch_companies_by_ticker(state: Data<AppState>, req_user: Option<ReqData<TokenClaims>>, ticker: web::Path<String>) -> impl Responder{
+    match req_user {
+        Some(user) => {
+            let db = match user.security_lvl {
+                0 => &state.db_admin,
+                1 => &state.db_moderator,
+                2 => &state.db_user,
+                _ => &state.db_auth
+            };
+            match sqlx::query_as::<_, Company>("SELECT * FROM company WHERE ticker = $1") 
+            .bind(ticker.clone())
+            .fetch_all(db)
+            .await
+            {
+                Ok(companies) => HttpResponse::Ok().json(companies),
+                Err(error) => HttpResponse::InternalServerError().json(format!("{:?}", error)),
+            }
+        }
+        _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
     }
 }

@@ -1,4 +1,4 @@
-use actix_web::{get, post, web::{Data, Json}, Responder, HttpResponse};
+use actix_web::{get, post, web::{Data, Json, self, ReqData}, Responder, HttpResponse, delete};
 use actix_web_httpauth::extractors::basic::BasicAuth;
 use serde::{Serialize, Deserialize};
 use sqlx::{self, FromRow, Postgres, Pool};
@@ -146,6 +146,29 @@ async fn create_account(state: Data<AppState>, body: Json<CreateAccountBody>) ->
     {
         Ok(user) => HttpResponse::Ok().json(user),
         Err(error) => HttpResponse::InternalServerError().json(format!("{:?}", error))
+    }
+}
+
+#[delete("/account/{login}")]
+async fn delete_account(state: Data<AppState>, req_user: Option<ReqData<TokenClaims>>,  login: web::Path<String>) -> impl Responder {
+    match req_user {
+        Some(user) => {
+            let db = match user.security_lvl {
+                0 => &state.db_admin,
+                1 => &state.db_moderator,
+                2 => &state.db_user,
+                _ => &state.db_auth
+            };
+            match sqlx::query_as::<_, Account>("DELETE FROM account WHERE login = $1 ")
+            .bind(login.clone())
+            .fetch_one(db)
+            .await
+            {
+                Ok(account) => HttpResponse::Ok().json(account),
+                Err(error) => HttpResponse::InternalServerError().json(format!("{:?}", error)),
+            }
+        }
+        _ => HttpResponse::Unauthorized().json("Unable to verify identity"),
     }
 }
 
