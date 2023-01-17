@@ -104,6 +104,9 @@ async fn main() -> std::io::Result<()> {
                     .service(portfolio::delete_portfolio_item)
                     .service(portfolio::alter_portfolio_item)
                     .service(exchange::fetch_exchange)
+                    .service(ledger::fetch_ledger_by_ticker)
+                    .service(companies::fetch_companies_by_ticker)
+                    .service(accounts::delete_account)
             )
     })
     .bind(("127.0.0.1", 3000))?
